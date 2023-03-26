@@ -97,7 +97,9 @@ impl Shuttle {
                         return self.deploy(deploy_args, &client).await;
                     }
                     Command::Status => self.status(&client).await,
-                    Command::Logs { id, follow } => self.logs(&client, id, follow).await,
+                    Command::Logs { id, latest, follow } => {
+                        self.logs(&client, id, latest, follow).await
+                    }
                     Command::Deployment(DeploymentCommand::List) => {
                         self.deployments_list(&client).await
                     }
@@ -357,7 +359,13 @@ impl Shuttle {
         Ok(())
     }
 
-    async fn logs(&self, client: &Client, id: Option<Uuid>, follow: bool) -> Result<()> {
+    async fn logs(
+        &self,
+        client: &Client,
+        id: Option<Uuid>,
+        latest: bool,
+        follow: bool,
+    ) -> Result<()> {
         let id = if let Some(id) = id {
             id
         } else {
@@ -365,6 +373,20 @@ impl Shuttle {
 
             if let Some(deployment) = summary.deployment {
                 deployment.id
+            } else if latest {
+                let deployments = client.get_deployments(self.ctx.project_name()).await?;
+                let deployment = deployments
+                    .iter()
+                    .max_by(|x, y| x.last_update.cmp(&y.last_update));
+
+                if let Some(deployment) = deployment {
+                    deployment.id
+                } else {
+                    return Err(anyhow!(
+                        "could not automatically find latest deployment for '{}'.",
+                        self.ctx.project_name()
+                    ));
+                }
             } else {
                 return Err(anyhow!("could not automatically find a running deployment for '{}'. Try passing a deployment ID manually", self.ctx.project_name()));
             }
